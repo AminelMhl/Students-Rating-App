@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { useEvaluation } from "../../EvaluationContext";
+import { type Session, useEvaluation } from "../../EvaluationContext";
 import styles from "../../page.module.css";
 
 type CriterionId =
@@ -67,8 +67,9 @@ const totalWeight = CRITERIA.reduce((sum, c) => sum + c.weight, 0);
 
 export default function SessionRatingPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const { getSession, addEvaluation, loaded } = useEvaluation();
-  const session = getSession(params.id);
+  const [session, setSession] = useState<Session | null>(null);
 
   const [evaluator, setEvaluator] = useState("");
   const [currentRatings, setCurrentRatings] = useState<
@@ -149,6 +150,69 @@ export default function SessionRatingPage() {
     }
   }, [params.id]);
 
+  useEffect(() => {
+    if (!loaded) return;
+
+    setSession(getSession(params.id) ?? null);
+
+    let cancelled = false;
+
+    const fetchSession = async () => {
+      try {
+        const response = await fetch(`/api/sessions/${params.id}`);
+        if (!response.ok) return;
+        const data = (await response.json()) as Session;
+        if (!cancelled) {
+          setSession(data);
+        }
+      } catch {
+        // ignore polling errors
+      }
+    };
+
+    // initial fetch and polling
+    void fetchSession();
+    const intervalId = window.setInterval(fetchSession, 3000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [loaded, getSession, params.id]);
+
+  const handleDelete = async () => {
+    if (!session) return;
+    const confirmed = window.confirm(
+      "Delete this rating session and all its votes? This cannot be undone.",
+    );
+    if (!confirmed) return;
+
+    const response = await fetch(`/api/sessions/${session.id}`, {
+      method: "DELETE",
+    });
+
+    if (!response.ok && response.status !== 204) {
+      window.alert("Failed to delete session. Please try again.");
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      const key = "rating_owned_sessions";
+      const stored = window.localStorage.getItem(key);
+      if (stored) {
+        try {
+          const owned = JSON.parse(stored) as string[];
+          const next = owned.filter((value) => value !== session.id);
+          window.localStorage.setItem(key, JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    router.push("/");
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!session || !evaluator.trim() || !allCriteriaRated) {
@@ -162,7 +226,16 @@ export default function SessionRatingPage() {
     );
     const overallScore = weightedSum / totalWeight;
 
-    await addEvaluation(session.id, evaluator.trim(), ratings, overallScore);
+    const updated = await addEvaluation(
+      session.id,
+      evaluator.trim(),
+      ratings,
+      overallScore,
+    );
+
+    if (updated) {
+      setSession(updated);
+    }
 
     setEvaluator("");
     setCurrentRatings({});
@@ -234,6 +307,15 @@ export default function SessionRatingPage() {
               <span className={styles.metaChip}>
                 Class average: {overallAverageScore.toFixed(2)} / {SCORE_MAX}
               </span>
+            )}
+            {isOwner && (
+              <button
+                type="button"
+                className={styles.secondaryButton}
+                onClick={handleDelete}
+              >
+                Delete rating
+              </button>
             )}
           </div>
         </header>

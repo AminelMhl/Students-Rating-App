@@ -1,4 +1,4 @@
-import { sql } from "@vercel/postgres";
+import { Pool } from "pg";
 
 type CriterionId =
   | "explainability"
@@ -24,8 +24,14 @@ export type Session = {
   evaluations: Evaluation[];
 };
 
-const postgresEnabled =
-  typeof process !== "undefined" && !!process.env.POSTGRES_URL;
+const connectionString =
+  (typeof process !== "undefined" && process.env.POSTGRES_URL) ||
+  (typeof process !== "undefined" && process.env.DATABASE_URL) ||
+  "";
+
+const postgresEnabled = typeof process !== "undefined" && !!connectionString;
+
+const pool = postgresEnabled ? new Pool({ connectionString }) : null;
 
 const memorySessions = new Map<string, Session>();
 
@@ -42,17 +48,18 @@ let schemaInitialized = false;
 
 async function ensureSchema() {
   if (!postgresEnabled || schemaInitialized === true) return;
+  if (!pool) return;
 
-  await sql`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       presenter TEXT NOT NULL,
       created_by TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL
     );
-  `;
+  `);
 
-  await sql`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS evaluations (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -61,7 +68,7 @@ async function ensureSchema() {
       overall_score REAL NOT NULL,
       created_at TIMESTAMPTZ NOT NULL
     );
-  `;
+  `);
 
   schemaInitialized = true;
 }
@@ -74,17 +81,20 @@ export async function listSessions(): Promise<Session[]> {
   }
 
   await ensureSchema();
+  if (!pool) return [];
 
-  const { rows: sessionRows } = await sql<{
+  const { rows: sessionRows } = await pool.query<{
     id: string;
     presenter: string;
     created_by: string;
     created_at: Date;
-  }>`
+  }>(
+    `
     SELECT id, presenter, created_by, created_at
     FROM sessions
     ORDER BY created_at DESC
-  `;
+  `,
+  );
 
   if (!sessionRows.length) return [];
 
@@ -101,34 +111,41 @@ export async function getSession(id: string): Promise<Session | null> {
   }
 
   await ensureSchema();
+  if (!pool) return null;
 
-  const { rows: sessionRows } = await sql<{
+  const { rows: sessionRows } = await pool.query<{
     id: string;
     presenter: string;
     created_by: string;
     created_at: Date;
-  }>`
+  }>(
+    `
     SELECT id, presenter, created_by, created_at
     FROM sessions
-    WHERE id = ${id}
+    WHERE id = $1
     LIMIT 1
-  `;
+  `,
+    [id],
+  );
 
   const sessionRow = sessionRows[0];
   if (!sessionRow) return null;
 
-  const { rows: evaluationRows } = await sql<{
+  const { rows: evaluationRows } = await pool.query<{
     id: string;
     evaluator: string;
     ratings: unknown;
     overall_score: number;
     created_at: Date;
-  }>`
+  }>(
+    `
     SELECT id, evaluator, ratings, overall_score, created_at
     FROM evaluations
-    WHERE session_id = ${id}
+    WHERE session_id = $1
     ORDER BY created_at ASC
-  `;
+  `,
+    [id],
+  );
 
   const evaluations: Evaluation[] = evaluationRows.map((row) => ({
     id: row.id,
@@ -169,11 +186,17 @@ export async function createSession(
   }
 
   await ensureSchema();
+  if (!pool) {
+    throw new Error("Postgres pool not available");
+  }
 
-  await sql`
+  await pool.query(
+    `
     INSERT INTO sessions (id, presenter, created_by, created_at)
-    VALUES (${id}, ${presenter.trim()}, ${createdBy.trim()}, ${nowIso}::timestamptz)
-  `;
+    VALUES ($1, $2, $3, $4::timestamptz)
+  `,
+    [id, presenter.trim(), createdBy.trim(), nowIso],
+  );
 
   const session = await getSession(id);
   if (!session) {
@@ -212,6 +235,7 @@ export async function addEvaluationToSession(
   }
 
   await ensureSchema();
+  if (!pool) return null;
 
   const existing = await getSession(sessionId);
   if (!existing) return null;
@@ -219,7 +243,8 @@ export async function addEvaluationToSession(
   const nowIso = new Date().toISOString();
   const evaluationId = generateId(EVALUATION_ID_PREFIX);
 
-  await sql`
+  await pool.query(
+    `
     INSERT INTO evaluations (
       id,
       session_id,
@@ -229,15 +254,43 @@ export async function addEvaluationToSession(
       created_at
     )
     VALUES (
-      ${evaluationId},
-      ${sessionId},
-      ${evaluator.trim()},
-      ${JSON.stringify(ratings)}::jsonb,
-      ${overallScore},
-      ${nowIso}::timestamptz
+      $1,
+      $2,
+      $3,
+      $4::jsonb,
+      $5,
+      $6::timestamptz
     )
-  `;
+  `,
+    [
+      evaluationId,
+      sessionId,
+      evaluator.trim(),
+      JSON.stringify(ratings),
+      overallScore,
+      nowIso,
+    ],
+  );
 
   const updated = await getSession(sessionId);
   return updated;
+}
+
+export async function deleteSession(id: string): Promise<boolean> {
+  if (!postgresEnabled) {
+    return memorySessions.delete(id);
+  }
+
+  await ensureSchema();
+  if (!pool) return false;
+
+  await pool.query(
+    `
+    DELETE FROM sessions
+    WHERE id = $1
+  `,
+    [id],
+  );
+
+  return true;
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { QRCodeSVG } from "qrcode.react";
 import { useState } from "react";
 import { useEvaluation } from "./EvaluationContext";
 import styles from "./page.module.css";
@@ -99,25 +100,42 @@ export default function Home() {
               </div>
 
               {lastCode && (
-                <p className={styles.helperText}>
-                  Share this code with your class:{" "}
-                  <span className={styles.codeInline}>{lastCode}</span>
+                <>
+                  <p className={styles.helperText}>
+                    Share this code with your class:{" "}
+                    <span className={styles.codeInline}>{lastCode}</span>
+                    {lastLink && (
+                      <>
+                        {" "}
+                        or this link:{" "}
+                        <a
+                          href={lastLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={styles.linkInline}
+                        >
+                          {lastLink}
+                        </a>
+                        .
+                      </>
+                    )}
+                  </p>
                   {lastLink && (
-                    <>
-                      {" "}
-                      or this link:{" "}
-                      <a
-                        href={lastLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className={styles.linkInline}
-                      >
-                        {lastLink}
-                      </a>
-                      .
-                    </>
+                    <div className={styles.qrBlock}>
+                      <p className={styles.helperText}>Or scan this QR code:</p>
+                      <div className={styles.qrBox}>
+                        <QRCodeSVG
+                          value={lastLink}
+                          size={132}
+                          bgColor="transparent"
+                          fgColor="#38bdf8"
+                          level="M"
+                          includeMargin
+                        />
+                      </div>
+                    </div>
                   )}
-                </p>
+                </>
               )}
             </form>
           </section>

@@ -172,6 +172,35 @@
   color: var(--text-muted);
 }
 
+.qrBlock {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qrBox {
+  display: inline-flex;
+  padding: 10px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(56, 189, 248, 0.18),
+      transparent 55%
+    ),
+    radial-gradient(
+      circle at bottom right,
+      rgba(59, 130, 246, 0.22),
+      transparent 60%
+    ), rgba(15, 23, 42, 0.98);
+}
+
+.qrBox svg {
+  display: block;
+}
+
 .linkInline {
   color: var(--accent);
   text-decoration: none;
@@ -486,6 +515,11 @@
     rgba(56, 189, 248, 0.9),
     rgba(59, 130, 246, 0.95)
   );
+  transition:
+    width 0.35s ease-out,
+    background-position 0.35s ease-out;
+  background-size: 200% 100%;
+  background-position: 0% 0%;
 }
 
 .evaluationsList {
