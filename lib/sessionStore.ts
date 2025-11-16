@@ -1,4 +1,4 @@
-import { kv } from "@vercel/kv";
+import { Redis } from "@upstash/redis";
 
 type CriterionId =
   | "explainability"
@@ -27,9 +27,12 @@ export type Session = {
 const SESSION_KEY = (id: string) => `session:${id}`;
 const SESSION_INDEX_KEY = "session:index";
 
-const kvEnabled =
+const redisEnabled =
   typeof process !== "undefined" &&
-  !!(process.env.KV_REST_API_URL || process.env.KV_URL);
+  !!process.env.UPSTASH_REDIS_REST_URL &&
+  !!process.env.UPSTASH_REDIS_REST_TOKEN;
+
+const redis = redisEnabled ? Redis.fromEnv() : null;
 
 const memorySessions = new Map<string, Session>();
 const memoryIndex: string[] = [];
@@ -41,31 +44,31 @@ function generateId(prefix: string) {
 }
 
 export async function listSessions(): Promise<Session[]> {
-  if (!kvEnabled) {
+  if (!redisEnabled || !redis) {
     return [...memorySessions.values()].sort((a, b) =>
       a.createdAt < b.createdAt ? 1 : -1,
     );
   }
 
-  const ids = await kv.zrange<string[]>(SESSION_INDEX_KEY, 0, -1, {
+  const ids = await redis.zrange<string[]>(SESSION_INDEX_KEY, 0, -1, {
     rev: true,
   });
 
   if (!ids?.length) return [];
 
   const sessions = await Promise.all(
-    ids.map((id) => kv.get<Session>(SESSION_KEY(id))),
+    ids.map((id) => redis.get<Session>(SESSION_KEY(id))),
   );
 
   return sessions.filter(Boolean) as Session[];
 }
 
 export async function getSession(id: string): Promise<Session | null> {
-  if (!kvEnabled) {
+  if (!redisEnabled || !redis) {
     return memorySessions.get(id) ?? null;
   }
 
-  const session = await kv.get<Session>(SESSION_KEY(id));
+  const session = await redis.get<Session>(SESSION_KEY(id));
   if (!session) return null;
   return session;
 }
@@ -85,14 +88,14 @@ export async function createSession(
     evaluations: [],
   };
 
-  if (!kvEnabled) {
+  if (!redisEnabled || !redis) {
     memorySessions.set(id, session);
     memoryIndex.push(id);
     return session;
   }
 
-  await kv.set(SESSION_KEY(id), session);
-  await kv.zadd(SESSION_INDEX_KEY, {
+  await redis.set(SESSION_KEY(id), session);
+  await redis.zadd(SESSION_INDEX_KEY, {
     score: Date.now(),
     member: id,
   });
@@ -124,11 +127,11 @@ export async function addEvaluationToSession(
     evaluations: [...existing.evaluations, evaluation],
   };
 
-  if (!kvEnabled) {
+  if (!redisEnabled || !redis) {
     memorySessions.set(sessionId, updated);
     return updated;
   }
 
-  await kv.set(SESSION_KEY(sessionId), updated);
+  await redis.set(SESSION_KEY(sessionId), updated);
   return updated;
 }
