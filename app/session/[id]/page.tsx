@@ -199,9 +199,6 @@ export default function SessionRatingPage() {
       setSession(updated);
     }
 
-    setEvaluator("");
-    setCurrentRatings({});
-
     if (typeof window !== "undefined") {
       const key = `rating_voted_${session.id}`;
       window.localStorage.setItem(key, "1");
