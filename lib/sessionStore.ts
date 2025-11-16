@@ -8,10 +8,17 @@ type CriterionId =
   | "timeManagement"
   | "delivery";
 
+type Criterion = {
+  id: string;
+  label: string;
+  description: string;
+  weight: number;
+};
+
 type Evaluation = {
   id: string;
   evaluator: string;
-  ratings: Record<CriterionId, number>;
+  ratings: Record<string, number>;
   overallScore: number;
   createdAt: string;
 };
@@ -21,6 +28,7 @@ export type Session = {
   presenter: string;
   createdBy: string;
   createdAt: string;
+  criteria: Criterion[];
   evaluations: Evaluation[];
 };
 
@@ -55,8 +63,14 @@ async function ensureSchema() {
       id TEXT PRIMARY KEY,
       presenter TEXT NOT NULL,
       created_by TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL
+      created_at TIMESTAMPTZ NOT NULL,
+      criteria JSONB NOT NULL DEFAULT '[]'::jsonb
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE sessions
+    ADD COLUMN IF NOT EXISTS criteria JSONB NOT NULL DEFAULT '[]'::jsonb;
   `);
 
   await pool.query(`
@@ -88,9 +102,10 @@ export async function listSessions(): Promise<Session[]> {
     presenter: string;
     created_by: string;
     created_at: Date;
+    criteria: unknown;
   }>(
     `
-    SELECT id, presenter, created_by, created_at
+    SELECT id, presenter, created_by, created_at, criteria
     FROM sessions
     ORDER BY created_at DESC
   `,
@@ -118,9 +133,10 @@ export async function getSession(id: string): Promise<Session | null> {
     presenter: string;
     created_by: string;
     created_at: Date;
+    criteria: unknown;
   }>(
     `
-    SELECT id, presenter, created_by, created_at
+    SELECT id, presenter, created_by, created_at, criteria
     FROM sessions
     WHERE id = $1
     LIMIT 1
@@ -160,6 +176,7 @@ export async function getSession(id: string): Promise<Session | null> {
     presenter: sessionRow.presenter,
     createdBy: sessionRow.created_by,
     createdAt: sessionRow.created_at.toISOString(),
+    criteria: (sessionRow.criteria as Criterion[]) ?? [],
     evaluations,
   };
 
@@ -169,6 +186,7 @@ export async function getSession(id: string): Promise<Session | null> {
 export async function createSession(
   presenter: string,
   createdBy: string,
+  criteria: Criterion[],
 ): Promise<Session> {
   const nowIso = new Date().toISOString();
   const id = generateId(SESSION_ID_PREFIX);
@@ -179,6 +197,7 @@ export async function createSession(
       presenter: presenter.trim(),
       createdBy: createdBy.trim(),
       createdAt: nowIso,
+      criteria,
       evaluations: [],
     };
     memorySessions.set(id, session);
@@ -192,10 +211,10 @@ export async function createSession(
 
   await pool.query(
     `
-    INSERT INTO sessions (id, presenter, created_by, created_at)
-    VALUES ($1, $2, $3, $4::timestamptz)
+    INSERT INTO sessions (id, presenter, created_by, created_at, criteria)
+    VALUES ($1, $2, $3, $4::timestamptz, $5::jsonb)
   `,
-    [id, presenter.trim(), createdBy.trim(), nowIso],
+    [id, presenter.trim(), createdBy.trim(), nowIso, JSON.stringify(criteria)],
   );
 
   const session = await getSession(id);
@@ -209,7 +228,7 @@ export async function createSession(
 export async function addEvaluationToSession(
   sessionId: string,
   evaluator: string,
-  ratings: Record<CriterionId, number>,
+  ratings: Record<string, number>,
   overallScore: number,
 ): Promise<Session | null> {
   if (!postgresEnabled) {

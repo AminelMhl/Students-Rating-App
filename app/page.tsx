@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { useState } from "react";
-import { useEvaluation } from "./EvaluationContext";
+import { type Criterion, useEvaluation } from "./EvaluationContext";
 import styles from "./page.module.css";
 
 export default function Home() {
@@ -15,13 +15,79 @@ export default function Home() {
   const [lastCode, setLastCode] = useState<string | null>(null);
 
   const [joinCode, setJoinCode] = useState("");
+  const [criteria, setCriteria] = useState<Criterion[]>([
+    {
+      id: "explainability",
+      label: "Explainability",
+      description: "How well concepts were broken down and explained.",
+      weight: 1,
+    },
+    {
+      id: "clarity",
+      label: "Clarity",
+      description: "How clear and easy to follow the presentation was.",
+      weight: 1,
+    },
+    {
+      id: "content",
+      label: "Content Quality",
+      description: "Depth, accuracy, and organization of the content.",
+      weight: 1,
+    },
+    {
+      id: "engagement",
+      label: "Engagement",
+      description: "How well the presenter kept the audience engaged.",
+      weight: 1,
+    },
+    {
+      id: "timeManagement",
+      label: "Time Management",
+      description: "Pacing and use of the allotted time.",
+      weight: 1,
+    },
+    {
+      id: "delivery",
+      label: "Delivery",
+      description: "Voice, body language, and overall delivery.",
+      weight: 1,
+    },
+  ]);
+
+  const handleCriterionChange = (index: number, value: string) => {
+    setCriteria((prev) =>
+      prev.map((criterion, i) =>
+        i === index ? { ...criterion, label: value } : criterion,
+      ),
+    );
+  };
+
+  const handleAddCriterion = () => {
+    setCriteria((prev) => [
+      ...prev,
+      {
+        id: `custom_${prev.length + 1}`,
+        label: "New criterion",
+        description: "Describe what you want to rate.",
+        weight: 1,
+      },
+    ]);
+  };
+
+  const handleRemoveCriterion = (index: number) => {
+    setCriteria((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const handleCreate = (event: React.FormEvent) => {
     event.preventDefault();
     if (!presenter.trim()) return;
 
     const create = async () => {
-      const session = await createSession(presenter.trim(), "Teacher");
+      const session = await createSession(
+        presenter.trim(),
+        "Teacher",
+        criteria,
+      );
 
       if (typeof window !== "undefined") {
         const base = window.location.origin;
@@ -87,6 +153,53 @@ export default function Home() {
                     placeholder="e.g. Alice Johnson"
                   />
                 </label>
+              </div>
+
+              <div className={styles.criteriaEditor}>
+                <span className={styles.criteriaEditorLabel}>
+                  Criteria for this rating
+                </span>
+                <span className={styles.criteriaEditorHint}>
+                  Edit, remove, or add criterion names before creating the link.
+                </span>
+                <div className={styles.criteriaList}>
+                  {criteria.map((criterion, index) => (
+                    <div
+                      key={criterion.id}
+                      className={`${styles.criterionRow} ${styles.criteriaEditorRow}`}
+                    >
+                      <div
+                        className={`${styles.criterionText} ${styles.criteriaEditorText}`}
+                      >
+                        <input
+                          className={styles.input}
+                          type="text"
+                          value={criterion.label}
+                          onChange={(event) =>
+                            handleCriterionChange(index, event.target.value)
+                          }
+                          placeholder="Criterion name"
+                        />
+                      </div>
+                      {criteria.length > 1 && (
+                        <button
+                          type="button"
+                          className={`${styles.secondaryButton} ${styles.criteriaEditorRemove}`}
+                          onClick={() => handleRemoveCriterion(index)}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    onClick={handleAddCriterion}
+                  >
+                    Add criterion
+                  </button>
+                </div>
               </div>
 
               <div className={styles.formActions}>

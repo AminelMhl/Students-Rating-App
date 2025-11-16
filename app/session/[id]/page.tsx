@@ -6,64 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 import { type Session, useEvaluation } from "../../EvaluationContext";
 import styles from "../../page.module.css";
 
-type CriterionId =
-  | "explainability"
-  | "clarity"
-  | "content"
-  | "engagement"
-  | "timeManagement"
-  | "delivery";
-
-type Criterion = {
-  id: CriterionId;
-  label: string;
-  description: string;
-  weight: number;
-};
-
-const CRITERIA: Criterion[] = [
-  {
-    id: "explainability",
-    label: "Explainability",
-    description: "How well concepts were broken down and explained.",
-    weight: 1,
-  },
-  {
-    id: "clarity",
-    label: "Clarity",
-    description: "How clear and easy to follow the presentation was.",
-    weight: 1,
-  },
-  {
-    id: "content",
-    label: "Content Quality",
-    description: "Depth, accuracy, and organization of the content.",
-    weight: 1,
-  },
-  {
-    id: "engagement",
-    label: "Engagement",
-    description: "How well the presenter kept the audience engaged.",
-    weight: 1,
-  },
-  {
-    id: "timeManagement",
-    label: "Time Management",
-    description: "Pacing and use of the allotted time.",
-    weight: 1,
-  },
-  {
-    id: "delivery",
-    label: "Delivery",
-    description: "Voice, body language, and overall delivery.",
-    weight: 1,
-  },
-];
-
 const SCORE_MIN = 1;
 const SCORE_MAX = 5;
-
-const totalWeight = CRITERIA.reduce((sum, c) => sum + c.weight, 0);
 
 export default function SessionRatingPage() {
   const params = useParams<{ id: string }>();
@@ -73,27 +17,38 @@ export default function SessionRatingPage() {
 
   const [evaluator, setEvaluator] = useState("");
   const [currentRatings, setCurrentRatings] = useState<
-    Partial<Record<CriterionId, number>>
+    Partial<Record<string, number>>
   >({});
+  const [hasVoted, setHasVoted] = useState(false);
+
+  const criteria = session?.criteria ?? [];
+
+  const totalWeight = useMemo(
+    () =>
+      criteria.length === 0
+        ? 1
+        : criteria.reduce((sum, criterion) => sum + (criterion.weight ?? 1), 0),
+    [criteria],
+  );
 
   const allCriteriaRated = useMemo(
-    () => CRITERIA.every((c) => typeof currentRatings[c.id] === "number"),
-    [currentRatings],
+    () => criteria.every((c) => typeof currentRatings[c.id] === "number"),
+    [criteria, currentRatings],
   );
 
   const currentOverallScore = useMemo(() => {
     if (!allCriteriaRated) return null;
-    const weightedSum = CRITERIA.reduce(
+    const weightedSum = criteria.reduce(
       (sum, c) => sum + (currentRatings[c.id] ?? 0) * c.weight,
       0,
     );
     return weightedSum / totalWeight;
-  }, [allCriteriaRated, currentRatings]);
+  }, [allCriteriaRated, currentRatings, criteria, totalWeight]);
 
   const summaryByCriterion = useMemo(() => {
     if (!session || !session.evaluations.length) return null;
 
-    return CRITERIA.map((criterion) => {
+    return criteria.map((criterion) => {
       const values = session.evaluations
         .map((evaluation) => evaluation.ratings[criterion.id])
         .filter((value) => typeof value === "number");
@@ -115,7 +70,7 @@ export default function SessionRatingPage() {
         average,
       };
     });
-  }, [session]);
+  }, [session, criteria]);
 
   const overallAverageScore = useMemo(() => {
     if (!session || !session.evaluations.length) return null;
@@ -126,7 +81,7 @@ export default function SessionRatingPage() {
     return sum / session.evaluations.length;
   }, [session]);
 
-  const handleRatingChange = (criterionId: CriterionId, value: number) => {
+  const handleRatingChange = (criterionId: string, value: number) => {
     setCurrentRatings((prev) => ({
       ...prev,
       [criterionId]: value,
@@ -180,6 +135,13 @@ export default function SessionRatingPage() {
     };
   }, [loaded, getSession, params.id]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = `rating_voted_${params.id}`;
+    const stored = window.localStorage.getItem(key);
+    setHasVoted(stored === "1");
+  }, [params.id]);
+
   const handleDelete = async () => {
     if (!session) return;
     const confirmed = window.confirm(
@@ -219,8 +181,8 @@ export default function SessionRatingPage() {
       return;
     }
 
-    const ratings = currentRatings as Record<CriterionId, number>;
-    const weightedSum = CRITERIA.reduce(
+    const ratings = currentRatings as Record<string, number>;
+    const weightedSum = criteria.reduce(
       (sum, c) => sum + ratings[c.id] * c.weight,
       0,
     );
@@ -239,6 +201,12 @@ export default function SessionRatingPage() {
 
     setEvaluator("");
     setCurrentRatings({});
+
+    if (typeof window !== "undefined") {
+      const key = `rating_voted_${session.id}`;
+      window.localStorage.setItem(key, "1");
+    }
+    setHasVoted(true);
   };
 
   if (!loaded) {
@@ -304,8 +272,13 @@ export default function SessionRatingPage() {
               {session.evaluations.length === 1 ? "" : "s"} so far
             </span>
             {overallAverageScore !== null && (
-              <span className={styles.metaChip}>
-                Class average: {overallAverageScore.toFixed(2)} / {SCORE_MAX}
+              <span className={styles.metaChipHighlight}>
+                <span className={styles.metaChipHighlightLabel}>
+                  Class average
+                </span>
+                <span className={styles.metaChipHighlightValue}>
+                  {overallAverageScore.toFixed(2)} / {SCORE_MAX}
+                </span>
               </span>
             )}
             {isOwner && (
@@ -333,12 +306,13 @@ export default function SessionRatingPage() {
                     value={evaluator}
                     onChange={(event) => setEvaluator(event.target.value)}
                     placeholder="e.g. Student name"
+                    disabled={hasVoted}
                   />
                 </label>
               </div>
 
               <div className={styles.criteriaList}>
-                {CRITERIA.map((criterion) => {
+                {criteria.map((criterion) => {
                   const selectedValue = currentRatings[criterion.id];
 
                   return (
@@ -346,9 +320,6 @@ export default function SessionRatingPage() {
                       <div className={styles.criterionText}>
                         <span className={styles.criterionLabel}>
                           {criterion.label}
-                        </span>
-                        <span className={styles.criterionDescription}>
-                          {criterion.description}
                         </span>
                       </div>
                       <div className={styles.scoreButtons}>
@@ -401,9 +372,11 @@ export default function SessionRatingPage() {
                   <button
                     type="submit"
                     className={styles.primaryButton}
-                    disabled={!evaluator.trim() || !allCriteriaRated}
+                    disabled={
+                      hasVoted || !evaluator.trim() || !allCriteriaRated
+                    }
                   >
-                    Submit rating
+                    {hasVoted ? "You already voted" : "Submit rating"}
                   </button>
                 </div>
               </div>

@@ -103,6 +103,34 @@
   color: var(--text-muted);
 }
 
+.metaChipHighlight {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.7);
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(56, 189, 248, 0.2),
+      transparent 60%
+    ), rgba(15, 23, 42, 0.98);
+}
+
+.metaChipHighlightLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.metaChipHighlightValue {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
 .content {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
@@ -276,6 +304,43 @@
       rgba(15, 23, 42, 0.98)
     ), linear-gradient(135deg, rgba(24, 35, 58, 0.95), rgba(15, 23, 42, 0.98));
   padding: 10px 10px 9px;
+}
+
+.criteriaEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.criteriaEditorLabel {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.criteriaEditorHint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.criteriaEditorRow {
+  align-items: flex-start;
+}
+
+.criteriaEditorText {
+  flex: 1 1 auto;
+}
+
+.criteriaEditorText .input {
+  width: 100%;
+}
+
+.criteriaEditorRemove {
+  align-self: flex-start;
+  padding: 4px 8px;
+  font-size: 11px;
 }
 
 .criterionRow {

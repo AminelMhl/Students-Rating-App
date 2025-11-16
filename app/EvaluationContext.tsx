@@ -2,18 +2,17 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
-type CriterionId =
-  | "explainability"
-  | "clarity"
-  | "content"
-  | "engagement"
-  | "timeManagement"
-  | "delivery";
+export type Criterion = {
+  id: string;
+  label: string;
+  description: string;
+  weight: number;
+};
 
 type Evaluation = {
   id: string;
   evaluator: string;
-  ratings: Record<CriterionId, number>;
+  ratings: Record<string, number>;
   overallScore: number;
   createdAt: string;
 };
@@ -23,17 +22,22 @@ export type Session = {
   presenter: string;
   createdBy: string;
   createdAt: string;
+  criteria: Criterion[];
   evaluations: Evaluation[];
 };
 
 type EvaluationContextValue = {
   sessions: Session[];
   loaded: boolean;
-  createSession: (presenter: string, createdBy: string) => Promise<Session>;
+  createSession: (
+    presenter: string,
+    createdBy: string,
+    criteria: Criterion[],
+  ) => Promise<Session>;
   addEvaluation: (
     sessionId: string,
     evaluator: string,
-    ratings: Record<CriterionId, number>,
+    ratings: Record<string, number>,
     overallScore: number,
   ) => Promise<Session | null>;
   getSession: (id: string) => Session | undefined;
@@ -80,6 +84,7 @@ export function EvaluationProvider({
     const createSession = async (
       presenter: string,
       createdBy: string,
+      criteria: Criterion[],
     ): Promise<Session> => {
       const response = await fetch("/api/sessions", {
         method: "POST",
@@ -89,6 +94,7 @@ export function EvaluationProvider({
         body: JSON.stringify({
           presenter,
           createdBy,
+          criteria,
         }),
       });
 
@@ -107,7 +113,7 @@ export function EvaluationProvider({
     const addEvaluation = async (
       sessionId: string,
       evaluator: string,
-      ratings: Record<CriterionId, number>,
+      ratings: Record<string, number>,
       overallScore: number,
     ): Promise<Session | null> => {
       const response = await fetch("/api/evaluations", {
