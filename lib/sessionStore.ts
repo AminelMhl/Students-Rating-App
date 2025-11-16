@@ -1,4 +1,4 @@
-import { Redis } from "@upstash/redis";
+import { sql } from "@vercel/postgres";
 
 type CriterionId =
   | "explainability"
@@ -24,18 +24,13 @@ export type Session = {
   evaluations: Evaluation[];
 };
 
-const SESSION_KEY = (id: string) => `session:${id}`;
-const SESSION_INDEX_KEY = "session:index";
-
-const redisEnabled =
-  typeof process !== "undefined" &&
-  !!process.env.UPSTASH_REDIS_REST_URL &&
-  !!process.env.UPSTASH_REDIS_REST_TOKEN;
-
-const redis = redisEnabled ? Redis.fromEnv() : null;
+const postgresEnabled =
+  typeof process !== "undefined" && !!process.env.POSTGRES_URL;
 
 const memorySessions = new Map<string, Session>();
-const memoryIndex: string[] = [];
+
+const SESSION_ID_PREFIX = "session";
+const EVALUATION_ID_PREFIX = "eval";
 
 function generateId(prefix: string) {
   const random = Math.random().toString(36).slice(2, 8);
@@ -43,33 +38,114 @@ function generateId(prefix: string) {
   return `${prefix}_${time}_${random}`;
 }
 
+let schemaInitialized = false;
+
+async function ensureSchema() {
+  if (!postgresEnabled || schemaInitialized === true) return;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      presenter TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL
+    );
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS evaluations (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      evaluator TEXT NOT NULL,
+      ratings JSONB NOT NULL,
+      overall_score REAL NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL
+    );
+  `;
+
+  schemaInitialized = true;
+}
+
 export async function listSessions(): Promise<Session[]> {
-  if (!redisEnabled || !redis) {
+  if (!postgresEnabled) {
     return [...memorySessions.values()].sort((a, b) =>
       a.createdAt < b.createdAt ? 1 : -1,
     );
   }
 
-  const ids = await redis.zrange<string[]>(SESSION_INDEX_KEY, 0, -1, {
-    rev: true,
-  });
+  await ensureSchema();
 
-  if (!ids?.length) return [];
+  const { rows: sessionRows } = await sql<{
+    id: string;
+    presenter: string;
+    created_by: string;
+    created_at: Date;
+  }>`
+    SELECT id, presenter, created_by, created_at
+    FROM sessions
+    ORDER BY created_at DESC
+  `;
+
+  if (!sessionRows.length) return [];
 
   const sessions = await Promise.all(
-    ids.map((id) => redis.get<Session>(SESSION_KEY(id))),
+    sessionRows.map((row) => getSession(row.id)),
   );
 
   return sessions.filter(Boolean) as Session[];
 }
 
 export async function getSession(id: string): Promise<Session | null> {
-  if (!redisEnabled || !redis) {
+  if (!postgresEnabled) {
     return memorySessions.get(id) ?? null;
   }
 
-  const session = await redis.get<Session>(SESSION_KEY(id));
-  if (!session) return null;
+  await ensureSchema();
+
+  const { rows: sessionRows } = await sql<{
+    id: string;
+    presenter: string;
+    created_by: string;
+    created_at: Date;
+  }>`
+    SELECT id, presenter, created_by, created_at
+    FROM sessions
+    WHERE id = ${id}
+    LIMIT 1
+  `;
+
+  const sessionRow = sessionRows[0];
+  if (!sessionRow) return null;
+
+  const { rows: evaluationRows } = await sql<{
+    id: string;
+    evaluator: string;
+    ratings: unknown;
+    overall_score: number;
+    created_at: Date;
+  }>`
+    SELECT id, evaluator, ratings, overall_score, created_at
+    FROM evaluations
+    WHERE session_id = ${id}
+    ORDER BY created_at ASC
+  `;
+
+  const evaluations: Evaluation[] = evaluationRows.map((row) => ({
+    id: row.id,
+    evaluator: row.evaluator,
+    ratings: row.ratings as Record<CriterionId, number>,
+    overallScore: row.overall_score,
+    createdAt: row.created_at.toISOString(),
+  }));
+
+  const session: Session = {
+    id: sessionRow.id,
+    presenter: sessionRow.presenter,
+    createdBy: sessionRow.created_by,
+    createdAt: sessionRow.created_at.toISOString(),
+    evaluations,
+  };
+
   return session;
 }
 
@@ -77,28 +153,32 @@ export async function createSession(
   presenter: string,
   createdBy: string,
 ): Promise<Session> {
-  const now = new Date().toISOString();
-  const id = generateId("session");
+  const nowIso = new Date().toISOString();
+  const id = generateId(SESSION_ID_PREFIX);
 
-  const session: Session = {
-    id,
-    presenter: presenter.trim(),
-    createdBy: createdBy.trim(),
-    createdAt: now,
-    evaluations: [],
-  };
-
-  if (!redisEnabled || !redis) {
+  if (!postgresEnabled) {
+    const session: Session = {
+      id,
+      presenter: presenter.trim(),
+      createdBy: createdBy.trim(),
+      createdAt: nowIso,
+      evaluations: [],
+    };
     memorySessions.set(id, session);
-    memoryIndex.push(id);
     return session;
   }
 
-  await redis.set(SESSION_KEY(id), session);
-  await redis.zadd(SESSION_INDEX_KEY, {
-    score: Date.now(),
-    member: id,
-  });
+  await ensureSchema();
+
+  await sql`
+    INSERT INTO sessions (id, presenter, created_by, created_at)
+    VALUES (${id}, ${presenter.trim()}, ${createdBy.trim()}, ${nowIso}::timestamptz)
+  `;
+
+  const session = await getSession(id);
+  if (!session) {
+    throw new Error("Failed to load session after creation");
+  }
 
   return session;
 }
@@ -109,29 +189,55 @@ export async function addEvaluationToSession(
   ratings: Record<CriterionId, number>,
   overallScore: number,
 ): Promise<Session | null> {
-  const existing = await getSession(sessionId);
-  if (!existing) return null;
+  if (!postgresEnabled) {
+    const existing = memorySessions.get(sessionId);
+    if (!existing) return null;
 
-  const now = new Date().toISOString();
+    const nowIso = new Date().toISOString();
+    const evaluation: Evaluation = {
+      id: generateId(EVALUATION_ID_PREFIX),
+      evaluator: evaluator.trim(),
+      ratings,
+      overallScore,
+      createdAt: nowIso,
+    };
 
-  const evaluation: Evaluation = {
-    id: generateId("eval"),
-    evaluator: evaluator.trim(),
-    ratings,
-    overallScore,
-    createdAt: now,
-  };
+    const updated: Session = {
+      ...existing,
+      evaluations: [...existing.evaluations, evaluation],
+    };
 
-  const updated: Session = {
-    ...existing,
-    evaluations: [...existing.evaluations, evaluation],
-  };
-
-  if (!redisEnabled || !redis) {
     memorySessions.set(sessionId, updated);
     return updated;
   }
 
-  await redis.set(SESSION_KEY(sessionId), updated);
+  await ensureSchema();
+
+  const existing = await getSession(sessionId);
+  if (!existing) return null;
+
+  const nowIso = new Date().toISOString();
+  const evaluationId = generateId(EVALUATION_ID_PREFIX);
+
+  await sql`
+    INSERT INTO evaluations (
+      id,
+      session_id,
+      evaluator,
+      ratings,
+      overall_score,
+      created_at
+    )
+    VALUES (
+      ${evaluationId},
+      ${sessionId},
+      ${evaluator.trim()},
+      ${JSON.stringify(ratings)}::jsonb,
+      ${overallScore},
+      ${nowIso}::timestamptz
+    )
+  `;
+
+  const updated = await getSession(sessionId);
   return updated;
 }
