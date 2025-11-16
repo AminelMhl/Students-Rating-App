@@ -3,10 +3,50 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useAuth } from "../AuthContext";
-import { useEvaluation } from "../EvaluationContext";
+import { type Criterion, useEvaluation } from "../EvaluationContext";
 import styles from "../page.module.css";
 
 const SCORE_MAX = 5;
+
+const DEFAULT_CRITERIA: Criterion[] = [
+  {
+    id: "explainability",
+    label: "Explainability",
+    // description intentionally unused in UI
+    description: "How well concepts were broken down and explained.",
+    weight: 1,
+  },
+  {
+    id: "clarity",
+    label: "Clarity",
+    description: "How clear and easy to follow the presentation was.",
+    weight: 1,
+  },
+  {
+    id: "content",
+    label: "Content Quality",
+    description: "Depth, accuracy, and organization of the content.",
+    weight: 1,
+  },
+  {
+    id: "engagement",
+    label: "Engagement",
+    description: "How well the presenter kept the audience engaged.",
+    weight: 1,
+  },
+  {
+    id: "timeManagement",
+    label: "Time Management",
+    description: "Pacing and use of the allotted time.",
+    weight: 1,
+  },
+  {
+    id: "delivery",
+    label: "Delivery",
+    description: "Voice, body language, and overall delivery.",
+    weight: 1,
+  },
+];
 
 export default function AdminPage() {
   const { user, logout } = useAuth();
@@ -14,10 +54,16 @@ export default function AdminPage() {
   const [presenter, setPresenter] = useState("");
   const [lastLink, setLastLink] = useState<string | null>(null);
 
-  const handleCreate = (event: React.FormEvent) => {
+  const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!presenter.trim() || !user) return;
-    const session = createSession(presenter.trim(), user.name);
+
+    const session = await createSession(
+      presenter.trim(),
+      user.name,
+      DEFAULT_CRITERIA,
+    );
+
     const base =
       typeof window !== "undefined"
         ? window.location.origin
