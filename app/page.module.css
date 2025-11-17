@@ -686,8 +686,9 @@
 
 @media (max-width: 600px) {
   .main {
-    padding: 14px;
-    gap: 18px;
+    padding: 5px;
+    gap: 10px;
+    border-radius: 18px;
   }
 
   .content {
@@ -696,14 +697,68 @@
 
   .header {
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
+    padding-bottom: 8px;
   }
 
   .meta {
     justify-content: flex-start;
+    gap: 6px;
   }
 
   .fieldRow {
     flex-direction: column;
+    gap: 8px;
+  }
+
+  .sectionTitle {
+    font-size: 13px;
+    margin-bottom: 2px;
+  }
+
+  .formSection,
+  .summarySection {
+    padding: 7px;
+    border-radius: 14px;
+  }
+
+  .form {
+    gap: 2px;
+  }
+
+  .helperText {
+    margin-top: 2px;
+    font-size: 11px;
+  }
+
+  .criteriaEditor {
+    gap: 2px;
+    margin-top: 2px;
+  }
+
+  .criteriaEditorHint {
+    font-size: 10px;
+  }
+
+  .criteriaList {
+    gap: 2px;
+    padding: 3px 3px 2px;
+  }
+
+  .criterionRow {
+    padding: 4px 6px;
+    gap: 2px;
+  }
+
+  .scoreButtons {
+    gap: 3px;
+  }
+
+  .currentScoreValue {
+    font-size: 15px;
+  }
+
+  .evaluationsList {
+    max-height: 220px;
   }
 }
